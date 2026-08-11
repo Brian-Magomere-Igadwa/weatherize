@@ -30,15 +30,16 @@ More importantly, **Kūchō** serves as a natural prompt to take regular breaks:
 ---
 
 ## System Architecture
+
 ```mermaid
 graph TB
-    subgraph Hardware Layer ["Hardware Layer (Microcontroller)"]
+    subgraph HARDWARE ["Hardware Layer (Microcontroller)"]
         DHT["DHT11 Sensor<br/><i>Digital Pin D8</i>"]
         AVR["ATmega328P / Arduino Uno<br/><code>firmware-avr</code>"]
         DHT -->|1-Wire Bit-Bang Protocol| AVR
     end
 
-    subgraph Host Server ["Kūchō Actix Server"]
+    subgraph SERVER ["Kūchō Actix Server"]
         SERIAL["Serial Ingestion Worker<br/><code>57600 Baud UART</code>"]
         STATE["In-Memory Watch Channel<br/><code>tokio::sync::watch</code>"]
         REST["REST Telemetry Endpoint<br/><code>/api/v1/telemetry</code>"]
@@ -49,24 +50,25 @@ graph TB
         STATE -->|Read Latest Snapshot| MCP
     end
 
-    subgraph Agent Layer ["Local AI Agent Layer"]
+    subgraph AGENT ["Local AI Agent Layer"]
         CLI["CLI Agent Crate<br/><code>cli-agent</code>"]
         OLLAMA["Ollama LLM Engine<br/><i>Local Inference (Qwen)</i>"]
 
-        CLI <===>|JSON-RPC Tool Calls| MCP
-        CLI <===>|Prompts & Tool Responses| OLLAMA
+        CLI <-->|JSON-RPC Tool Calls| MCP
+        CLI <-->|Prompts & Tool Responses| OLLAMA
     end
 
-    subgraph Observability ["Observability Stack (Docker)"]
+    subgraph OBS ["Observability Stack (Docker)"]
         ALLOY["Grafana Alloy<br/><i>OTLP Collector</i>"]
         LOKI["Grafana Loki"]
         TEMPO["Grafana Tempo"]
         GRAFANA["Grafana Dashboards"]
+    end
 
-        Host Server -.->|Traces / Bunyan Logs| ALLOY
-        ALLOY --> LOKI
-        ALLOY --> TEMPO
-        ALLOY --> GRAFANA
+    SERVER -.->|Traces / Bunyan Logs| ALLOY
+    ALLOY --> LOKI
+    ALLOY --> TEMPO
+    ALLOY --> GRAFANA
 
 ```
 
@@ -77,6 +79,7 @@ graph TB
 ```mermaid
 sequenceDiagram
     autonumber
+    actor User as User
     actor Room as Room Environment
     participant AVR as ATmega328P Firmware
     participant Actix as Actix Serial Worker
