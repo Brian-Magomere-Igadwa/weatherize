@@ -30,6 +30,7 @@ More importantly, **Kūchō** serves as a natural prompt to take regular breaks:
 ---
 
 ## System Architecture
+
 ```mermaid
 graph TB
     subgraph Hardware Layer ["Hardware Layer (Microcontroller)"]
