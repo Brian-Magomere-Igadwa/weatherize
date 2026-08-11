@@ -1,0 +1,19 @@
+[workspace]
+members = ["weather-core", "firmware-avr", "weather-actix-server", "cli-agent"]
+resolver = "2"
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+
+[profile.dev]
+panic = "abort"
+lto = true
+opt-level = "s"
+
+[profile.release]
+panic = "abort"
+codegen-units = 1
+debug = false
+lto = true
+opt-level = "s"

@@ -1,0 +1,18 @@
+[package]
+name = "weather-core"
+version.workspace = true
+edition.workspace = true
+
+[features]
+default = ["std"]
+std = ["serde/std", "dep:serde_json"]
+
+[dependencies]
+# serde is NOT optional (weather-core always needs derives), 
+# but default-features = false allows it to run under no_std.
+serde = { version = "1.0", default-features = false, features = ["derive"] }
+
+# serde_json IS optional and only active when the "std" feature is set.
+serde_json = { version = "1.0.151", optional = true }
+
+ufmt = "0.2"
