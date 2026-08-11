@@ -48,3 +48,4 @@ workspace_code.txt
 /deployment/data/
 /deployment/grafana/data/
 /monitoring/data/
+Cargo.lock
