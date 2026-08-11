@@ -1,0 +1,106 @@
+# # Build Stage
+# FROM rust:1.78-slim AS builder
+# WORKDIR /app
+
+# RUN apt-get update && apt-get install -y pkg-config libssl-dev && rm -rf /var/lib/apt/lists/*
+
+# # Copy workspace files required to build weather-actix-server
+# COPY Cargo.toml Cargo.lock ./
+# COPY weather-core ./weather-core
+# COPY weather-actix-server ./weather-actix-server
+
+# # Build release target
+# RUN cargo build --release -p weather-actix-server
+
+# # Runtime Stage
+# FROM debian:bookworm-slim
+# WORKDIR /app
+
+# RUN apt-get update && apt-get install -y ca-certificates libssl3 && rm -rf /var/lib/apt/lists/*
+
+# COPY --from=builder /app/target/release/weather-actix-server /app/weather-actix-server
+
+# EXPOSE 8080
+# CMD ["/app/weather-actix-server"]
+# Build Stage
+# Build Stage
+
+
+# FROM rust:1.78-slim AS builder
+# WORKDIR /app
+
+# # Install build dependencies for OpenSSL and serial port (udev) support
+# RUN apt-get update && apt-get install -y \
+#     pkg-config \
+#     libssl-dev \
+#     libudev-dev \
+#     && rm -rf /var/lib/apt/lists/*
+
+# # Copy workspace files
+# COPY Cargo.toml Cargo.lock ./
+# COPY weather-core ./weather-core
+# COPY weather-actix-server ./weather-actix-server
+# COPY firmware-avr ./firmware-avr
+# COPY cli-agent ./cli-agent
+
+# # Build target binary
+# RUN cargo build --release -p weather-actix-server
+
+# # Runtime Stage
+# FROM debian:bookworm-slim
+# WORKDIR /app
+
+# # Install runtime C libraries
+# RUN apt-get update && apt-get install -y \
+#     ca-certificates \
+#     libssl3 \
+#     libudev1 \
+#     && rm -rf /var/lib/apt/lists/*
+
+# COPY --from=builder /app/target/release/weather-actix-server /app/weather-actix-server
+
+# EXPOSE 8080
+# CMD ["/app/weather-actix-server"]
+
+
+
+
+
+
+# Build Stage
+# Build Stage
+FROM rust:slim-bookworm AS builder
+WORKDIR /app
+
+# Install build dependencies for OpenSSL and serial port (udev) support
+RUN apt-get update && apt-get install -y \
+    pkg-config \
+    libssl-dev \
+    libudev-dev \
+    && rm -rf /var/lib/apt/lists/*
+
+# Copy workspace files
+COPY Cargo.toml Cargo.lock ./
+COPY weather-core ./weather-core
+COPY weather-actix-server ./weather-actix-server
+COPY firmware-avr ./firmware-avr
+COPY cli-agent ./cli-agent
+
+# Build target binary
+RUN cargo build --release -p weather-actix-server
+
+# Runtime Stage
+FROM debian:bookworm-slim
+WORKDIR /app
+
+# Install runtime C libraries
+RUN apt-get update && apt-get install -y \
+    ca-certificates \
+    libssl3 \
+    libudev1 \
+    && rm -rf /var/lib/apt/lists/*
+
+COPY --from=builder /app/target/release/weather-actix-server /app/weather-actix-server
+
+EXPOSE 8080
+CMD ["/app/weather-actix-server"]
