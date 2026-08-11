@@ -1,0 +1,10 @@
+[build]
+target = "avr-atmega328p.json"
+
+[target.avr-atmega328p]
+runner = "ravedude"
+rustflags = ["-C", "target-cpu=atmega328p"]
+
+[unstable]
+build-std = ["core"]
+build-std-features = ["compiler-builtins-mem"]

@@ -1,0 +1,14 @@
+[package]
+name = "firmware-avr"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+embedded-hal = "1.0.0"
+panic-halt = "0.2.0"
+ufmt = "0.2.0"
+weather-core = { path = "../weather-core", default-features = false }
+
+[dependencies.arduino-hal]
+git = "https://github.com/rahix/avr-hal"
+features = ["arduino-uno"]
