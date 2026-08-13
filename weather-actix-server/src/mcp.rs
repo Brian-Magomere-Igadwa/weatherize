@@ -48,10 +48,26 @@ pub fn get_mcp_tool_definitions() -> Value {
         "tools": [
             {
                 "name": "get_indoor_climate",
-                "description": "Fetch real-time ambient temperature and humidity telemetry from hardware station",
+                "description": "Get the latest current indoor temperature, humidity, and safety status. Use this only for questions about what conditions are like right now. Do not use this for questions asking whether temperature or humidity has risen, fallen, changed, or trended over time.",
                 "inputSchema": {
                     "type": "object",
                     "properties": {}
+                }
+            },
+            {
+                "name": "get_climate_trend",
+                "description": "Analyze how indoor temperature and humidity changed over a recent time window. Use this for questions asking whether conditions have risen, fallen, changed, increased, decreased, or trended over time.",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "window_seconds": {
+                            "type": "integer",
+                            "minimum": 1,
+                            "maximum": 300,
+                            "description": "How many recent seconds of telemetry to analyze"
+                        }
+                    },
+                    "required": ["window_seconds"]
                 }
             }
         ]

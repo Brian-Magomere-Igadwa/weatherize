@@ -1,8 +1,10 @@
+use crate::events::AgentEvent;
 use futures_util::StreamExt;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::io::{self, Write};
 use tokio::io::AsyncBufReadExt;
+use tokio::sync::mpsc;
 use tokio_util::io::StreamReader;
 
 #[derive(Serialize)]
@@ -168,6 +170,148 @@ impl AgentEngine {
         Ok((accumulated_content, tool_calls))
     }
 
+    async fn handle_user_message(
+        &self,
+        input: String,
+        messages: &mut Vec<Message>,
+        tools: &[Value],
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        messages.push(Message {
+            role: "user".to_string(),
+            content: Some(input),
+            tool_calls: None,
+        });
+
+        let payload = ChatRequest {
+            model: self.model.clone(),
+            messages: messages.clone(),
+            tools: tools.to_vec(),
+            stream: true,
+        };
+
+        print!("\n");
+
+        let (content, tool_calls) = match self.stream_ollama(&payload).await {
+            Ok(res) => res,
+            Err(e) => {
+                eprintln!("\n[ERROR] Request failed: {e}\n");
+                return Ok(());
+            }
+        };
+
+        if let Some(calls) = tool_calls {
+            messages.push(Message {
+                role: "assistant".to_string(),
+                content: if content.is_empty() {
+                    None
+                } else {
+                    Some(content)
+                },
+                tool_calls: Some(calls.clone()),
+            });
+
+            for call in calls {
+                let fn_name = &call.function.name;
+                let fn_args = &call.function.arguments;
+
+                println!("\n[Kūchō Agent: Calling MCP Tool '{fn_name}']");
+
+                match self.call_mcp_tool(fn_name, fn_args).await {
+                    Ok(output) => {
+                        println!("[MCP Output]: {output}\n");
+
+                        messages.push(Message {
+                            role: "tool".to_string(),
+                            content: Some(output),
+                            tool_calls: None,
+                        });
+                    }
+
+                    Err(e) => {
+                        eprintln!("[MCP Tool Error]: {e}");
+
+                        messages.push(Message {
+                            role: "tool".to_string(),
+                            content: Some(format!("Error executing tool: {e}")),
+                            tool_calls: None,
+                        });
+                    }
+                }
+            }
+
+            let final_payload = ChatRequest {
+                model: self.model.clone(),
+                messages: messages.clone(),
+                tools: tools.to_vec(),
+                stream: true,
+            };
+
+            let (final_content, _) = match self.stream_ollama(&final_payload).await {
+                Ok(res) => res,
+                Err(e) => {
+                    eprintln!("\n[ERROR] Synthesis stream failed: {e}");
+                    return Ok(());
+                }
+            };
+
+            messages.push(Message {
+                role: "assistant".to_string(),
+                content: Some(final_content),
+                tool_calls: None,
+            });
+
+            println!("\n");
+        } else {
+            messages.push(Message {
+                role: "assistant".to_string(),
+                content: Some(content),
+                tool_calls: None,
+            });
+
+            println!("\n");
+        }
+
+        Ok(())
+    }
+
+    async fn run_event_loop(
+        &self,
+        mut event_rx: mpsc::Receiver<AgentEvent>,
+        ready_tx: mpsc::Sender<()>,
+        tools: Vec<Value>,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        let mut messages: Vec<Message> = vec![Message {
+        role: "system".to_string(),
+        content: Some(
+    "You are Kūchō, a local AI assistant connected to live physical hardware sensors via MCP tools. \
+     Use get_indoor_climate for questions about current conditions right now. \
+     Use get_climate_trend for questions about how temperature or humidity changed over time, \
+     including whether values are rising, falling, increasing, decreasing, or trending."
+        .to_string(),
+),
+        tool_calls: None,
+    }];
+
+        while let Some(event) = event_rx.recv().await {
+            match event {
+                AgentEvent::UserMessage(input) => {
+                    println!("\n[Kūchō is working...]\n");
+
+                    self.handle_user_message(input, &mut messages, &tools)
+                        .await?;
+
+                    let _ = ready_tx.send(()).await;
+                }
+
+                AgentEvent::Shutdown => {
+                    break;
+                }
+            }
+        }
+
+        Ok(())
+    }
+
     /// Interactive REPL terminal session.
     pub async fn run_repl(&self) -> Result<(), Box<dyn std::error::Error>> {
         println!("Connecting to MCP server at {}...", self.mcp_url);
@@ -182,130 +326,69 @@ impl AgentEngine {
             }
         };
 
-        let mut messages: Vec<Message> = vec![Message {
-            role: "system".to_string(),
-            content: Some(
-                "You are Kūchō, a local AI assistant connected to live physical hardware sensors via MCP tools. Call available tools when environmental data is requested."
-                    .to_string(),
-            ),
-            tool_calls: None,
-        }];
-
         println!("==================================================");
         println!("  Kūchō Interactive CLI (Ollama Streaming + MCP)  ");
         println!("  Type 'exit' or 'quit' to end session.           ");
         println!("==================================================\n");
+        let (event_tx, event_rx) = mpsc::channel::<AgentEvent>(32);
+        let (ready_tx, mut ready_rx) = mpsc::channel::<()>(1);
+        ready_tx.send(()).await?;
 
-        loop {
-            print!("> ");
-            io::stdout().flush()?;
+        let input_tx = event_tx.clone();
+        let input_ready_tx = ready_tx.clone();
 
-            let mut input = String::new();
-            if io::stdin().read_line(&mut input)? == 0 {
-                break;
-            }
+        tokio::spawn(async move {
+            while ready_rx.recv().await.is_some() {
+                print!("> ");
 
-            let input = input.trim();
-            if input.is_empty() {
-                continue;
-            }
+                if io::stdout().flush().is_err() {
+                    break;
+                }
 
-            if input.eq_ignore_ascii_case("exit") || input.eq_ignore_ascii_case("quit") {
-                println!("Bye!");
-                break;
-            }
+                let mut input = String::new();
 
-            messages.push(Message {
-                role: "user".to_string(),
-                content: Some(input.to_string()),
-                tool_calls: None,
-            });
+                match io::stdin().read_line(&mut input) {
+                    Ok(0) => {
+                        let _ = input_tx.send(AgentEvent::Shutdown).await;
+                        break;
+                    }
+                    Ok(_) => {}
+                    Err(_) => {
+                        let _ = input_tx.send(AgentEvent::Shutdown).await;
+                        break;
+                    }
+                }
 
-            let payload = ChatRequest {
-                model: self.model.clone(),
-                messages: messages.clone(),
-                tools: tools.clone(),
-                stream: true,
-            };
+                let input = input.trim();
 
-            print!("\n");
-            let (content, tool_calls) = match self.stream_ollama(&payload).await {
-                Ok(res) => res,
-                Err(e) => {
-                    eprintln!("\n[ERROR] Request failed: {e}\n");
+                if input.is_empty() {
+                    let _ = input_ready_tx.send(()).await;
                     continue;
                 }
-            };
 
-            // Handle tool execution loop if requested by model
-            if let Some(calls) = tool_calls {
-                messages.push(Message {
-                    role: "assistant".to_string(),
-                    content: if content.is_empty() {
-                        None
-                    } else {
-                        Some(content)
-                    },
-                    tool_calls: Some(calls.clone()),
-                });
-
-                for call in calls {
-                    let fn_name = &call.function.name;
-                    let fn_args = &call.function.arguments;
-
-                    println!("\n[Kūchō Agent: Calling MCP Tool '{fn_name}']");
-
-                    match self.call_mcp_tool(fn_name, fn_args).await {
-                        Ok(output) => {
-                            println!("[MCP Output]: {output}\n");
-                            messages.push(Message {
-                                role: "tool".to_string(),
-                                content: Some(output),
-                                tool_calls: None,
-                            });
-                        }
-                        Err(e) => {
-                            eprintln!("[MCP Tool Error]: {e}");
-                            messages.push(Message {
-                                role: "tool".to_string(),
-                                content: Some(format!("Error executing tool: {e}")),
-                                tool_calls: None,
-                            });
-                        }
-                    }
+                if input.eq_ignore_ascii_case("exit") || input.eq_ignore_ascii_case("quit") {
+                    let _ = input_tx.send(AgentEvent::Shutdown).await;
+                    break;
                 }
 
-                // Secondary streaming pass to synthesize final tool response
-                let final_payload = ChatRequest {
-                    model: self.model.clone(),
-                    messages: messages.clone(),
-                    tools: tools.clone(),
-                    stream: true,
-                };
+                if input_tx
+                    .send(AgentEvent::UserMessage(input.to_string()))
+                    .await
+                    .is_err()
+                {
+                    break;
+                }
 
-                let (final_content, _) = match self.stream_ollama(&final_payload).await {
-                    Ok(res) => res,
-                    Err(e) => {
-                        eprintln!("\n[ERROR] Synthesis stream failed: {e}");
-                        continue;
-                    }
-                };
-
-                messages.push(Message {
-                    role: "assistant".to_string(),
-                    content: Some(final_content),
-                    tool_calls: None,
-                });
-                println!("\n");
-            } else {
-                messages.push(Message {
-                    role: "assistant".to_string(),
-                    content: Some(content),
-                    tool_calls: None,
-                });
-                println!("\n");
+                // IMPORTANT:
+                // Do not request another input here.
+                //
+                // run_event_loop() will send READY only after
+                // handle_user_message() has completely finished.
             }
-        }
+        });
+        self.run_event_loop(event_rx, ready_tx, tools).await?;
+
+        println!("Bye!");
 
         Ok(())
     }
