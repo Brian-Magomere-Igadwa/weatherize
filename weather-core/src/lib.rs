@@ -1,8 +1,9 @@
 #![cfg_attr(not(feature = "std"), no_std)]
-
+pub mod analysis;
 pub mod domain;
 pub mod protocol;
 
+pub use analysis::{ClimateTrend, MetricTrend, TrendDirection};
 pub use domain::SafetyStatus;
 pub use protocol::TelemetryPayload;
 
