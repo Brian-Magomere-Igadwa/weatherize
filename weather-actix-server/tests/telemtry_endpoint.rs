@@ -1,16 +1,20 @@
 use actix_web::{test, web, App};
-use tokio::sync::watch;
-use weather_actix_server::state::TelemetrySample;
+use std::sync::Arc;
+use std::time::Duration;
+use tokio::sync::{watch, RwLock};
+use weather_actix_server::{handlers, history::TelemetryHistory, state::TelemetrySample};
 use weather_core::TelemetryPayload;
-
-use weather_actix_server::handlers;
 
 #[actix_rt::test]
 async fn test_telemetry_endpoint_flow() {
     let (tx, rx) = watch::channel(None);
+    let history = Arc::new(RwLock::new(TelemetryHistory::new(Duration::from_secs(300))));
     let app = test::init_service(
         App::new()
-            .app_data(web::Data::new(handlers::AppState { telemetry_rx: rx }))
+            .app_data(web::Data::new(handlers::AppState {
+                telemetry_rx: rx,
+                telemetry_history: history,
+            }))
             .service(handlers::health_check)
             .service(handlers::get_current_telemetry),
     )

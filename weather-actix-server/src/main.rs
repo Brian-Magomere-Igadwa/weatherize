@@ -1,9 +1,13 @@
 use actix_web::{web, App, HttpServer};
 use std::env;
-use tokio::sync::watch;
 use tracing::info;
 use tracing_subscriber::EnvFilter;
 use weather_actix_server::{handlers, serial};
+
+use std::sync::Arc;
+use std::time::Duration;
+use tokio::sync::{watch, RwLock};
+use weather_actix_server::history::TelemetryHistory;
 
 #[actix_web::main]
 async fn main() -> std::io::Result<()> {
@@ -24,10 +28,15 @@ async fn main() -> std::io::Result<()> {
 
     let (tx, rx) = watch::channel(None);
 
+    let telemetry_history = Arc::new(RwLock::new(TelemetryHistory::new(Duration::from_secs(
+        5 * 60,
+    ))));
+
     tokio::spawn(serial::spawn_serial_ingestion_loop(
         serial_port,
         baud_rate,
         tx,
+        telemetry_history.clone(),
     ));
 
     info!(address = %format!("{}:{}", server_host, server_port), "Starting Actix web server");
@@ -36,6 +45,7 @@ async fn main() -> std::io::Result<()> {
         App::new()
             .app_data(web::Data::new(handlers::AppState {
                 telemetry_rx: rx.clone(),
+                telemetry_history: telemetry_history.clone(),
             }))
             .service(handlers::health_check)
             .service(handlers::get_current_telemetry)

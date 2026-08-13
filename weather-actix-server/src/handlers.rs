@@ -1,10 +1,14 @@
 use crate::mcp::{get_mcp_tool_definitions, JsonRpcRequest, JsonRpcResponse};
 use crate::state::TelemetrySample;
 use actix_web::{get, post, web, HttpResponse, Responder};
-use tokio::sync::watch;
+
+use crate::history::TelemetryHistory;
+use std::sync::Arc;
+use tokio::sync::{watch, RwLock};
 
 pub struct AppState {
     pub telemetry_rx: watch::Receiver<Option<TelemetrySample>>,
+    pub telemetry_history: Arc<RwLock<TelemetryHistory>>,
 }
 
 #[get("/health")]

@@ -7,10 +7,15 @@ use tokio_util::codec::{Decoder, LinesCodec};
 use tracing::{error, info, warn};
 use weather_core::TelemetryPayload;
 
+use crate::history::TelemetryHistory;
+use std::sync::Arc;
+use tokio::sync::RwLock;
+
 pub async fn spawn_serial_ingestion_loop(
     port_path: String,
     baud_rate: u32,
     tx: watch::Sender<Option<TelemetrySample>>,
+    history: Arc<RwLock<TelemetryHistory>>,
 ) {
     loop {
         info!(port = %port_path, baud = %baud_rate, "Attempting connection to serial port");
@@ -18,7 +23,7 @@ pub async fn spawn_serial_ingestion_loop(
         match tokio_serial::new(&port_path, baud_rate).open_native_async() {
             Ok(serial_stream) => {
                 info!("Successfully connected to serial device");
-                process_serial_stream(serial_stream, &tx).await;
+                process_serial_stream(serial_stream, &tx, &history).await;
             }
             Err(err) => {
                 warn!(error = %err, "Failed to open serial port. Retrying in 3s...");
@@ -29,7 +34,11 @@ pub async fn spawn_serial_ingestion_loop(
     }
 }
 
-async fn process_serial_stream(stream: SerialStream, tx: &watch::Sender<Option<TelemetrySample>>) {
+async fn process_serial_stream(
+    stream: SerialStream,
+    tx: &watch::Sender<Option<TelemetrySample>>,
+    history: &Arc<RwLock<TelemetryHistory>>,
+) {
     let mut lines = LinesCodec::new().framed(stream);
 
     while let Some(line_result) = lines.next().await {
@@ -49,6 +58,9 @@ async fn process_serial_stream(stream: SerialStream, tx: &watch::Sender<Option<T
                         );
 
                         let sample = TelemetrySample::new(payload);
+
+                        history.write().await.push(sample);
+
                         let _ = tx.send(Some(sample));
                     }
                     Err(err) => {

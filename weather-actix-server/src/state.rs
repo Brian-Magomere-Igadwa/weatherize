@@ -9,8 +9,12 @@ pub struct TelemetrySample {
 
 impl TelemetrySample {
     pub fn new(payload: TelemetryPayload) -> Self {
+        Self::observed_at(payload, Instant::now())
+    }
+
+    pub fn observed_at(payload: TelemetryPayload, observed_at: Instant) -> Self {
         Self {
-            observed_at: Instant::now(),
+            observed_at,
             payload,
         }
     }
