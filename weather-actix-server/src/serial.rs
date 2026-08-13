@@ -1,3 +1,4 @@
+use crate::state::TelemetrySample;
 use std::time::Duration;
 use tokio::sync::watch;
 use tokio_serial::{SerialPortBuilderExt, SerialStream};
@@ -9,7 +10,7 @@ use weather_core::TelemetryPayload;
 pub async fn spawn_serial_ingestion_loop(
     port_path: String,
     baud_rate: u32,
-    tx: watch::Sender<Option<TelemetryPayload>>,
+    tx: watch::Sender<Option<TelemetrySample>>,
 ) {
     loop {
         info!(port = %port_path, baud = %baud_rate, "Attempting connection to serial port");
@@ -28,7 +29,7 @@ pub async fn spawn_serial_ingestion_loop(
     }
 }
 
-async fn process_serial_stream(stream: SerialStream, tx: &watch::Sender<Option<TelemetryPayload>>) {
+async fn process_serial_stream(stream: SerialStream, tx: &watch::Sender<Option<TelemetrySample>>) {
     let mut lines = LinesCodec::new().framed(stream);
 
     while let Some(line_result) = lines.next().await {
@@ -41,11 +42,21 @@ async fn process_serial_stream(stream: SerialStream, tx: &watch::Sender<Option<T
 
                 match serde_json::from_str::<TelemetryPayload>(&line) {
                     Ok(payload) => {
-                        info!(temp = %payload.temperature_celsius(), status = ?payload.status, "Valid telemetry frame parsed");
-                        let _ = tx.send(Some(payload));
+                        info!(
+                            temp = %payload.temperature_celsius(),
+                            status = ?payload.status,
+                            "Valid telemetry frame parsed"
+                        );
+
+                        let sample = TelemetrySample::new(payload);
+                        let _ = tx.send(Some(sample));
                     }
                     Err(err) => {
-                        warn!(error = %err, raw = %line, "Malformed JSON received over serial line");
+                        warn!(
+                            error = %err,
+                            raw = %line,
+                            "Malformed JSON received over serial line"
+                        );
                     }
                 }
             }

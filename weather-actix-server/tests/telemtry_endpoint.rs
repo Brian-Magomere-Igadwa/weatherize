@@ -1,5 +1,6 @@
 use actix_web::{test, web, App};
 use tokio::sync::watch;
+use weather_actix_server::state::TelemetrySample;
 use weather_core::TelemetryPayload;
 
 use weather_actix_server::handlers;
@@ -24,7 +25,7 @@ async fn test_telemetry_endpoint_flow() {
 
     // 2. Broadcast Telemetry Frame
     let sample = TelemetryPayload::from_raw_dht11(23, 5, 55, 0);
-    tx.send(Some(sample)).unwrap();
+    tx.send(Some(TelemetrySample::new(sample))).unwrap();
 
     // 3. Updated State: Should return 200 OK with payload
     let req = test::TestRequest::get()
