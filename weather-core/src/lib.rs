@@ -3,7 +3,7 @@ pub mod analysis;
 pub mod domain;
 pub mod protocol;
 
-pub use analysis::{ClimateTrend, MetricTrend, TrendDirection};
+pub use analysis::{ClimateTrend, EnvironmentEvent, MetricTrend, TrendDirection};
 pub use domain::SafetyStatus;
 pub use protocol::TelemetryPayload;
 

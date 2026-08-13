@@ -25,6 +25,27 @@ pub struct ClimateTrend {
     pub sample_count: usize,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq)]
+#[cfg_attr(feature = "std", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(
+    feature = "std",
+    serde(tag = "type", rename_all = "SCREAMING_SNAKE_CASE")
+)]
+pub enum EnvironmentEvent {
+    TemperatureChangedRapidly {
+        delta_celsius: f32,
+        rate_per_minute: f32,
+    },
+    HumidityChangedRapidly {
+        delta_percent: f32,
+        rate_per_minute: f32,
+    },
+    SafetyStatusChanged {
+        from: crate::SafetyStatus,
+        to: crate::SafetyStatus,
+    },
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
