@@ -1,3 +1,4 @@
+#[derive(Debug, Clone)]
 pub struct SpeechEngine {
     enabled: bool,
 }
@@ -12,7 +13,6 @@ impl SpeechEngine {
             return Ok(());
         }
 
-        // Kokoro implementation comes in M6.2.
         println!("[Kūchō would speak]: {text}");
 
         Ok(())

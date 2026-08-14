@@ -1,5 +1,6 @@
 mod agent;
 mod events;
+mod speech;
 
 use agent::AgentEngine;
 use clap::Parser;
@@ -22,6 +23,9 @@ struct Args {
 
     #[arg(long, default_value = "qwen2.5:3b")]
     commentary_model: String,
+
+    #[arg(long, default_value_t = true)]
+    speech: bool,
 }
 
 #[tokio::main]
@@ -32,6 +36,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         args.ollama_url,
         args.model,
         args.commentary_model,
+        args.speech,
     );
 
     agent.run_repl().await?;

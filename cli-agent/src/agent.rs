@@ -1,3 +1,5 @@
+use crate::speech::SpeechEngine;
+
 use crate::events::AgentEvent;
 use futures_util::StreamExt;
 use serde::{Deserialize, Serialize};
@@ -50,6 +52,7 @@ pub struct AgentEngine {
     ollama_url: String,
     model: String,
     commentary_model: String,
+    speech: SpeechEngine,
 }
 
 impl AgentEngine {
@@ -58,6 +61,7 @@ impl AgentEngine {
         ollama_url: String,
         model: String,
         commentary_model: String,
+        speech_enabled: bool,
     ) -> Self {
         Self {
             client: reqwest::Client::new(),
@@ -65,6 +69,7 @@ impl AgentEngine {
             ollama_url,
             model,
             commentary_model,
+            speech: SpeechEngine::new(speech_enabled),
         }
     }
 
@@ -410,6 +415,11 @@ impl AgentEngine {
                     match self.generate_environment_commentary(&event).await {
                         Ok(commentary) => {
                             println!("\n");
+
+                            if let Err(err) = self.speech.speak(&commentary).await {
+                                eprintln!("[Kūchō Speech Error]: {err}");
+                            }
+
                             messages.push(Message {
                                 role: "assistant".to_string(),
                                 content: Some(commentary),
