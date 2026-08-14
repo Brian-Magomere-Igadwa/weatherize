@@ -1,4 +1,5 @@
 use std::path::PathBuf;
+use std::process::Stdio;
 use tokio::process::Command;
 
 #[derive(Debug, Clone)]
@@ -61,7 +62,11 @@ impl SpeechEngine {
             command.env("ORT_DYLIB_PATH", dylib);
         }
 
-        let status = command.status().await?;
+        let status = command
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .status()
+            .await?;
 
         if !status.success() {
             return Err(format!("Kokoros exited with status {status}").into());

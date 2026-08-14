@@ -431,9 +431,14 @@ impl AgentEngine {
                         Ok(commentary) => {
                             println!("\n");
 
-                            if let Err(err) = self.speech.speak(&commentary).await {
-                                eprintln!("[Kūchō Speech Error]: {err}");
-                            }
+                            let speech = self.speech.clone();
+                            let speech_text = commentary.clone();
+
+                            tokio::spawn(async move {
+                                if let Err(err) = speech.speak(&speech_text).await {
+                                    eprintln!("[Kūchō Speech Error]: {err}");
+                                }
+                            });
 
                             messages.push(Message {
                                 role: "assistant".to_string(),
