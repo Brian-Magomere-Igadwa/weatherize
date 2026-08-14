@@ -1,4 +1,5 @@
 mod agent;
+mod events;
 
 use agent::AgentEngine;
 use clap::Parser;

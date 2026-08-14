@@ -6,6 +6,9 @@ use crate::history::TelemetryHistory;
 use std::sync::Arc;
 use tokio::sync::{watch, RwLock};
 
+use crate::analysis::analyze_samples;
+use std::time::Duration;
+
 pub struct AppState {
     pub telemetry_rx: watch::Receiver<Option<TelemetrySample>>,
     pub telemetry_history: Arc<RwLock<TelemetryHistory>>,
@@ -41,26 +44,88 @@ pub async fn handle_mcp_rpc(
         }
         "tools/call" => {
             let tool_name = request.params.get("name").and_then(|v| v.as_str());
-            if tool_name == Some("get_indoor_climate") {
-                let current = data.telemetry_rx.borrow();
-                let content = match *current {
-                    Some(sample) => serde_json::json!([{
-                        "type": "text",
-                        "text": serde_json::to_string(&sample.payload).unwrap_or_default()
-                    }]),
-                    None => serde_json::json!([{
-                        "type": "text",
-                        "text": "Sensor reading unavailable. Hardware station warming up or disconnected."
-                    }]),
-                };
 
-                let result = serde_json::json!({ "content": content });
-                HttpResponse::Ok().json(JsonRpcResponse::success(request.id, result))
-            } else {
-                HttpResponse::Ok().json(JsonRpcResponse::method_not_found(
+            match tool_name {
+                Some("get_indoor_climate") => {
+                    let current = data.telemetry_rx.borrow();
+
+                    let content = match *current {
+                        Some(sample) => serde_json::json!([{
+                            "type": "text",
+                            "text": serde_json::to_string(&sample.payload).unwrap_or_default()
+                        }]),
+                        None => serde_json::json!([{
+                            "type": "text",
+                            "text": "Sensor reading unavailable. Hardware station warming up or disconnected."
+                        }]),
+                    };
+
+                    let result = serde_json::json!({
+                        "content": content
+                    });
+
+                    HttpResponse::Ok().json(JsonRpcResponse::success(request.id, result))
+                }
+
+                Some("get_climate_trend") => {
+                    let window_seconds = request
+                        .params
+                        .get("arguments")
+                        .and_then(|args| args.get("window_seconds"))
+                        .and_then(|value| value.as_u64());
+
+                    let Some(window_seconds) = window_seconds else {
+                        let result = serde_json::json!({
+                            "content": [{
+                                "type": "text",
+                                "text": "window_seconds must be provided as a positive integer."
+                            }]
+                        });
+
+                        return HttpResponse::Ok()
+                            .json(JsonRpcResponse::success(request.id, result));
+                    };
+
+                    if window_seconds == 0 || window_seconds > 300 {
+                        let result = serde_json::json!({
+                            "content": [{
+                                "type": "text",
+                                "text": "window_seconds must be between 1 and 300."
+                            }]
+                        });
+
+                        return HttpResponse::Ok()
+                            .json(JsonRpcResponse::success(request.id, result));
+                    }
+
+                    let samples = {
+                        let history = data.telemetry_history.read().await;
+                        history.recent(Duration::from_secs(window_seconds))
+                    };
+
+                    let content = match analyze_samples(&samples) {
+                        Ok(trend) => serde_json::json!([{
+                            "type": "text",
+                            "text": serde_json::to_string(&trend).unwrap_or_default()
+                        }]),
+
+                        Err(_) => serde_json::json!([{
+                            "type": "text",
+                            "text": "Not enough telemetry has been collected for that time window yet."
+                        }]),
+                    };
+
+                    let result = serde_json::json!({
+                        "content": content
+                    });
+
+                    HttpResponse::Ok().json(JsonRpcResponse::success(request.id, result))
+                }
+
+                _ => HttpResponse::Ok().json(JsonRpcResponse::method_not_found(
                     request.id,
                     tool_name.unwrap_or("unknown"),
-                ))
+                )),
             }
         }
         _ => HttpResponse::Ok().json(JsonRpcResponse::method_not_found(
