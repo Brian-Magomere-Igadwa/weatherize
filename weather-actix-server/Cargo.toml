@@ -19,7 +19,8 @@ opentelemetry-otlp = { version = "0.14", features = ["grpc-tonic"] }
 opentelemetry_sdk = { version = "0.21", features = ["rt-tokio"] }
 tracing-opentelemetry = "0.22"
 tracing-bunyan-formatter = "0.3"
-tokio-stream = "0.1.19"
+tokio-stream = { version = "0.1.19", features = ["sync"] }
+
 
 [dev-dependencies]
 actix-rt = "2.9"

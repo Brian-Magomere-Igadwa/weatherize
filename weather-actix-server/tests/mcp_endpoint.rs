@@ -5,15 +5,19 @@ use tokio::sync::{watch, RwLock};
 use weather_actix_server::{handlers, history::TelemetryHistory, state::TelemetrySample};
 use weather_core::TelemetryPayload;
 
+use tokio::sync::broadcast;
+
 #[actix_rt::test]
 async fn test_mcp_tools_list_and_call() {
     let (tx, rx) = watch::channel(None);
     let history = Arc::new(RwLock::new(TelemetryHistory::new(Duration::from_secs(300))));
+    let (environment_event_tx, _) = broadcast::channel(32);
     let app = test::init_service(
         App::new()
             .app_data(web::Data::new(handlers::AppState {
                 telemetry_rx: rx,
                 telemetry_history: history,
+                environment_event_tx,
             }))
             .service(handlers::handle_mcp_rpc),
     )
@@ -75,11 +79,13 @@ async fn test_get_climate_trend_tool() {
         ));
     }
 
+    let (environment_event_tx, _) = broadcast::channel(32);
     let app = test::init_service(
         App::new()
             .app_data(web::Data::new(handlers::AppState {
                 telemetry_rx: rx,
                 telemetry_history: history,
+                environment_event_tx,
             }))
             .service(handlers::handle_mcp_rpc),
     )
@@ -128,11 +134,13 @@ async fn test_get_climate_trend_requires_enough_samples() {
         )));
     }
 
+    let (environment_event_tx, _) = broadcast::channel(32);
     let app = test::init_service(
         App::new()
             .app_data(web::Data::new(handlers::AppState {
                 telemetry_rx: rx,
                 telemetry_history: history,
+                environment_event_tx,
             }))
             .service(handlers::handle_mcp_rpc),
     )
@@ -166,11 +174,13 @@ async fn test_get_climate_trend_rejects_zero_window() {
 
     let history = Arc::new(RwLock::new(TelemetryHistory::new(Duration::from_secs(300))));
 
+    let (environment_event_tx, _) = broadcast::channel(32);
     let app = test::init_service(
         App::new()
             .app_data(web::Data::new(handlers::AppState {
                 telemetry_rx: rx,
                 telemetry_history: history,
+                environment_event_tx,
             }))
             .service(handlers::handle_mcp_rpc),
     )
@@ -204,11 +214,13 @@ async fn test_get_climate_trend_rejects_window_above_retention() {
 
     let history = Arc::new(RwLock::new(TelemetryHistory::new(Duration::from_secs(300))));
 
+    let (environment_event_tx, _) = broadcast::channel(32);
     let app = test::init_service(
         App::new()
             .app_data(web::Data::new(handlers::AppState {
                 telemetry_rx: rx,
                 telemetry_history: history,
+                environment_event_tx,
             }))
             .service(handlers::handle_mcp_rpc),
     )
@@ -242,11 +254,13 @@ async fn test_get_climate_trend_requires_window_argument() {
 
     let history = Arc::new(RwLock::new(TelemetryHistory::new(Duration::from_secs(300))));
 
+    let (environment_event_tx, _) = broadcast::channel(32);
     let app = test::init_service(
         App::new()
             .app_data(web::Data::new(handlers::AppState {
                 telemetry_rx: rx,
                 telemetry_history: history,
+                environment_event_tx,
             }))
             .service(handlers::handle_mcp_rpc),
     )

@@ -6,7 +6,7 @@ use weather_actix_server::{handlers, serial};
 
 use std::sync::Arc;
 use std::time::Duration;
-use tokio::sync::{watch, RwLock};
+use tokio::sync::{broadcast, watch, RwLock};
 use weather_actix_server::history::TelemetryHistory;
 
 #[actix_web::main]
@@ -27,6 +27,7 @@ async fn main() -> std::io::Result<()> {
         .expect("PORT must be a valid u16");
 
     let (tx, rx) = watch::channel(None);
+    let (environment_event_tx, _) = broadcast::channel(32);
 
     let telemetry_history = Arc::new(RwLock::new(TelemetryHistory::new(Duration::from_secs(
         5 * 60,
@@ -37,6 +38,7 @@ async fn main() -> std::io::Result<()> {
         baud_rate,
         tx,
         telemetry_history.clone(),
+        environment_event_tx.clone(),
     ));
 
     info!(address = %format!("{}:{}", server_host, server_port), "Starting Actix web server");
@@ -46,9 +48,11 @@ async fn main() -> std::io::Result<()> {
             .app_data(web::Data::new(handlers::AppState {
                 telemetry_rx: rx.clone(),
                 telemetry_history: telemetry_history.clone(),
+                environment_event_tx: environment_event_tx.clone(),
             }))
             .service(handlers::health_check)
             .service(handlers::get_current_telemetry)
+            .service(handlers::stream_environment_events)
             .service(handlers::handle_mcp_rpc)
     })
     .bind((server_host.as_str(), server_port))?
