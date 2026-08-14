@@ -1,4 +1,5 @@
 pub mod analysis;
+pub mod detector;
 pub mod handlers;
 pub mod history;
 pub mod mcp;
