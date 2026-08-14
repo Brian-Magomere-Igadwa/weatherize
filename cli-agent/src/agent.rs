@@ -1,8 +1,11 @@
+use crate::speech::SpeechEngine;
+
 use crate::events::AgentEvent;
 use futures_util::StreamExt;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::io::{self, Write};
+use std::path::PathBuf;
 use tokio::io::AsyncBufReadExt;
 use tokio::sync::mpsc;
 use tokio_util::io::StreamReader;
@@ -50,6 +53,7 @@ pub struct AgentEngine {
     ollama_url: String,
     model: String,
     commentary_model: String,
+    speech: SpeechEngine,
 }
 
 impl AgentEngine {
@@ -58,6 +62,13 @@ impl AgentEngine {
         ollama_url: String,
         model: String,
         commentary_model: String,
+        speech_enabled: bool,
+        koko_binary: PathBuf,
+        kokoro_model: PathBuf,
+        kokoro_voices: PathBuf,
+        ort_dylib: Option<PathBuf>,
+        voice_style: String,
+        speech_speed: f32,
     ) -> Self {
         Self {
             client: reqwest::Client::new(),
@@ -65,6 +76,15 @@ impl AgentEngine {
             ollama_url,
             model,
             commentary_model,
+            speech: SpeechEngine::new(
+                speech_enabled,
+                koko_binary,
+                kokoro_model,
+                kokoro_voices,
+                ort_dylib,
+                voice_style,
+                speech_speed,
+            ),
         }
     }
 
@@ -410,6 +430,16 @@ impl AgentEngine {
                     match self.generate_environment_commentary(&event).await {
                         Ok(commentary) => {
                             println!("\n");
+
+                            let speech = self.speech.clone();
+                            let speech_text = commentary.clone();
+
+                            tokio::spawn(async move {
+                                if let Err(err) = speech.speak(&speech_text).await {
+                                    eprintln!("[Kūchō Speech Error]: {err}");
+                                }
+                            });
+
                             messages.push(Message {
                                 role: "assistant".to_string(),
                                 content: Some(commentary),
