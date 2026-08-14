@@ -6,6 +6,7 @@ use std::io::{self, Write};
 use tokio::io::AsyncBufReadExt;
 use tokio::sync::mpsc;
 use tokio_util::io::StreamReader;
+use weather_core::EnvironmentEvent;
 
 #[derive(Serialize)]
 struct ChatRequest {
@@ -40,6 +41,7 @@ struct ChatResponse {
     message: Message,
 }
 
+#[derive(Clone)]
 pub struct AgentEngine {
     client: reqwest::Client,
     mcp_url: String,
@@ -274,6 +276,50 @@ impl AgentEngine {
         Ok(())
     }
 
+    async fn listen_for_environment_events(
+        &self,
+        event_tx: mpsc::Sender<AgentEvent>,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        let endpoint = format!("{}/api/v1/events", self.mcp_url.trim_end_matches("/mcp"));
+
+        let response = self.client.get(&endpoint).send().await?;
+
+        if !response.status().is_success() {
+            return Err(format!("environment event stream returned {}", response.status()).into());
+        }
+
+        let mut stream = response.bytes_stream();
+        let mut buffer = String::new();
+
+        while let Some(chunk) = stream.next().await {
+            let chunk = chunk?;
+            buffer.push_str(&String::from_utf8_lossy(&chunk));
+
+            while let Some(boundary) = buffer.find("\n\n") {
+                let event_block = buffer[..boundary].to_string();
+                buffer.drain(..boundary + 2);
+
+                for line in event_block.lines() {
+                    if let Some(json) = line.strip_prefix("data: ") {
+                        match serde_json::from_str::<EnvironmentEvent>(json) {
+                            Ok(event) => {
+                                if event_tx.send(AgentEvent::Environment(event)).await.is_err() {
+                                    return Ok(());
+                                }
+                            }
+
+                            Err(err) => {
+                                eprintln!("[Kūchō Environment Event Parse Error]: {err}");
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        Ok(())
+    }
+
     async fn run_event_loop(
         &self,
         mut event_rx: mpsc::Receiver<AgentEvent>,
@@ -302,7 +348,10 @@ impl AgentEngine {
 
                     let _ = ready_tx.send(()).await;
                 }
-
+                AgentEvent::Environment(event) => {
+                    println!("\n[Kūchō noticed an environmental change]");
+                    println!("{event:?}\n");
+                }
                 AgentEvent::Shutdown => {
                     break;
                 }
@@ -333,6 +382,18 @@ impl AgentEngine {
         let (event_tx, event_rx) = mpsc::channel::<AgentEvent>(32);
         let (ready_tx, mut ready_rx) = mpsc::channel::<()>(1);
         ready_tx.send(()).await?;
+
+        let environment_event_tx = event_tx.clone();
+        let environment_listener = self.clone();
+
+        tokio::spawn(async move {
+            if let Err(err) = environment_listener
+                .listen_for_environment_events(environment_event_tx)
+                .await
+            {
+                eprintln!("[Kūchō Environment Listener Error]: {err}");
+            }
+        });
 
         let input_tx = event_tx.clone();
         let input_ready_tx = ready_tx.clone();
