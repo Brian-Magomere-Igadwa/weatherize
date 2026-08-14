@@ -1,6 +1,6 @@
 use actix_web::{test, web, App};
 use tokio::sync::watch;
-use weather_actix_server::{handlers, mcp};
+use weather_actix_server::{handlers, state::TelemetrySample};
 use weather_core::{SafetyStatus, TelemetryPayload};
 
 #[actix_rt::test]
@@ -23,7 +23,7 @@ async fn test_full_system_e2e_flow() {
 
     // 2. Simulate Hardware DHT11 Ingestion Loop
     let sample = TelemetryPayload::from_raw_dht11(28, 4, 68, 0);
-    tx.send(Some(sample)).unwrap();
+    tx.send(Some(TelemetrySample::new(sample))).unwrap();
 
     // 3. Verify REST API Output matches ingested data
     let req = test::TestRequest::get()

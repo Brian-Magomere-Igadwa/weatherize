@@ -1,10 +1,10 @@
 use crate::mcp::{get_mcp_tool_definitions, JsonRpcRequest, JsonRpcResponse};
+use crate::state::TelemetrySample;
 use actix_web::{get, post, web, HttpResponse, Responder};
 use tokio::sync::watch;
-use weather_core::TelemetryPayload;
 
 pub struct AppState {
-    pub telemetry_rx: watch::Receiver<Option<TelemetryPayload>>,
+    pub telemetry_rx: watch::Receiver<Option<TelemetrySample>>,
 }
 
 #[get("/health")]
@@ -16,7 +16,7 @@ pub async fn health_check() -> impl Responder {
 pub async fn get_current_telemetry(data: web::Data<AppState>) -> impl Responder {
     let current = data.telemetry_rx.borrow();
     match *current {
-        Some(payload) => HttpResponse::Ok().json(payload),
+        Some(sample) => HttpResponse::Ok().json(sample.payload),
         None => HttpResponse::ServiceUnavailable().json(serde_json::json!({
             "error": "No telemetry payload received from board yet"
         })),
@@ -40,9 +40,9 @@ pub async fn handle_mcp_rpc(
             if tool_name == Some("get_indoor_climate") {
                 let current = data.telemetry_rx.borrow();
                 let content = match *current {
-                    Some(payload) => serde_json::json!([{
+                    Some(sample) => serde_json::json!([{
                         "type": "text",
-                        "text": serde_json::to_string(&payload).unwrap_or_default()
+                        "text": serde_json::to_string(&sample.payload).unwrap_or_default()
                     }]),
                     None => serde_json::json!([{
                         "type": "text",

@@ -1,6 +1,6 @@
 use actix_web::{test, web, App};
 use tokio::sync::watch;
-use weather_actix_server::handlers;
+use weather_actix_server::{handlers, state::TelemetrySample};
 use weather_core::TelemetryPayload;
 
 #[actix_rt::test]
@@ -28,7 +28,8 @@ async fn test_mcp_tools_list_and_call() {
 
     // 2. Broadcast telemetry state and test tools/call execution
     let payload = TelemetryPayload::from_raw_dht11(26, 2, 62, 0);
-    tx.send(Some(payload)).unwrap();
+    // tx.send(Some(payload)).unwrap();
+    tx.send(Some(TelemetrySample::new(payload))).unwrap();
 
     let call_req = test::TestRequest::post()
         .uri("/mcp")
