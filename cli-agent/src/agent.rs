@@ -14,6 +14,8 @@ struct ChatRequest {
     messages: Vec<Message>,
     tools: Vec<Value>,
     stream: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    think: Option<bool>,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
@@ -47,15 +49,22 @@ pub struct AgentEngine {
     mcp_url: String,
     ollama_url: String,
     model: String,
+    commentary_model: String,
 }
 
 impl AgentEngine {
-    pub fn new(mcp_url: String, ollama_url: String, model: String) -> Self {
+    pub fn new(
+        mcp_url: String,
+        ollama_url: String,
+        model: String,
+        commentary_model: String,
+    ) -> Self {
         Self {
             client: reqwest::Client::new(),
             mcp_url,
             ollama_url,
             model,
+            commentary_model,
         }
     }
 
@@ -189,8 +198,8 @@ impl AgentEngine {
             messages: messages.clone(),
             tools: tools.to_vec(),
             stream: true,
+            think: None,
         };
-
         print!("\n");
 
         let (content, tool_calls) = match self.stream_ollama(&payload).await {
@@ -246,6 +255,7 @@ impl AgentEngine {
                 messages: messages.clone(),
                 tools: tools.to_vec(),
                 stream: true,
+                think: None,
             };
 
             let (final_content, _) = match self.stream_ollama(&final_payload).await {
@@ -320,6 +330,52 @@ impl AgentEngine {
         Ok(())
     }
 
+    async fn generate_environment_commentary(
+        &self,
+        event: &EnvironmentEvent,
+    ) -> Result<String, Box<dyn std::error::Error>> {
+        println!("\n[generate_environment_commentary started...]");
+        let event_json = serde_json::to_string(event)?;
+
+        let messages = vec![
+        Message {
+            role: "system".to_string(),
+            content: Some(
+                "You are Kūchō, a local ambient assistant observing indoor climate conditions. \
+                An environmental change has already been determined to be significant by deterministic monitoring logic. \
+                Your only job is to comment on it naturally in one short sentence. \
+                Your personality is dry, sarcastic, slightly grumpy, clever, and mildly dramatic. \
+                You can tease the user and sound exasperated, but never become cruel, hostile, or genuinely insulting. \
+                Prefer witty observations over generic alerts. \
+                Do not explain your reasoning. \
+                Do not dump raw JSON or technical field names. \
+                Do not call tools. \
+                Keep it concise enough to be spoken aloud."
+                    .to_string(),
+            ),
+            tool_calls: None,
+        },
+        Message {
+            role: "user".to_string(),
+            content: Some(format!(
+                "/no_think\nDescribe this detected environmental event to the user:\n{event_json}"
+            )),
+            tool_calls: None,
+        },
+    ];
+
+        let payload = ChatRequest {
+            model: self.commentary_model.clone(),
+            messages,
+            tools: vec![],
+            stream: true,
+            think: Some(false),
+        };
+
+        let (content, _) = self.stream_ollama(&payload).await?;
+
+        Ok(content)
+    }
     async fn run_event_loop(
         &self,
         mut event_rx: mpsc::Receiver<AgentEvent>,
@@ -349,8 +405,24 @@ impl AgentEngine {
                     let _ = ready_tx.send(()).await;
                 }
                 AgentEvent::Environment(event) => {
-                    println!("\n[Kūchō noticed an environmental change]");
-                    println!("{event:?}\n");
+                    println!("\n[Kūchō noticed something...]");
+
+                    match self.generate_environment_commentary(&event).await {
+                        Ok(commentary) => {
+                            println!("\n");
+                            messages.push(Message {
+                                role: "assistant".to_string(),
+                                content: Some(commentary),
+                                tool_calls: None,
+                            });
+                        }
+
+                        Err(err) => {
+                            eprintln!("[Kūchō Commentary Error]: {err}");
+
+                            println!("[Environmental event: {event:?}]");
+                        }
+                    }
                 }
                 AgentEvent::Shutdown => {
                     break;
