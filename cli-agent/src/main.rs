@@ -19,12 +19,20 @@ struct Args {
 
     #[arg(short, long, default_value = "qwen3:4b")]
     model: String,
+
+    #[arg(long, default_value = "qwen2.5:3b")]
+    commentary_model: String,
 }
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let args = Args::parse();
-    let agent = AgentEngine::new(args.mcp_url, args.ollama_url, args.model);
+    let agent = AgentEngine::new(
+        args.mcp_url,
+        args.ollama_url,
+        args.model,
+        args.commentary_model,
+    );
 
     agent.run_repl().await?;
 
