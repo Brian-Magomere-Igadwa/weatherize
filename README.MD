@@ -2,6 +2,8 @@
 
 **A local-first ambient AI assistant that can sense the room, understand environmental changes, and complain about them out loud.**
 
+![Kūchō weather station](docs/images/kucho-weather-station.jpg)
+
 Kūchō connects physical environmental sensors to a local AI agent. It continuously observes indoor temperature and humidity, detects meaningful changes using deterministic Rust logic, exposes live and historical climate data through MCP, and can autonomously comment on changes using local LLMs and speech synthesis.
 
 ```text
@@ -488,6 +490,7 @@ boundaries.
 | [`docs/setup-macos.md`](docs/setup-macos.md)         | macOS installation, including Intel ONNX Runtime notes |
 | [`docs/architecture.md`](docs/architecture.md)       | System architecture and design decisions               |
 | [`docs/troubleshooting.md`](docs/troubleshooting.md) | Common failures and diagnostic workflow                |
+| [`docs/hardware.md`](docs/hardware.md)               | Arduino/DHT11 wiring and firmware hardware setup       |
 
 If something fails unexpectedly, start with:
 
@@ -541,3 +544,9 @@ The sensors provide the facts.
 Rust provides the judgment.
 
 Kūchō provides the attitude.
+
+### Hardware
+
+Build and wire the sensor node first:
+
+[`docs/hardware.md`](docs/hardware.md)
