@@ -211,8 +211,6 @@ If this happens, check:
 
 ## Hardware photo
 
-A photo of the tested Kūchō prototype can be added here:
-
 ```markdown
 ![Kūchō weather station](images/kucho-weather-station.jpg)
 ```
@@ -228,9 +226,6 @@ Recommended repository location:
 ```text
 docs/images/kucho-weather-station.jpg
 ```
-
-A real photo is preferable to a generic internet wiring image because it shows
-the exact tested build.
 
 ## Changing the sensor pin
 

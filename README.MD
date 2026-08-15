@@ -2,7 +2,14 @@
 
 **A local-first ambient AI assistant that can sense the room, understand environmental changes, and complain about them out loud.**
 
-![Kūchō weather station](docs/images/kucho-weather-station.jpg)
+<!-- ![Kūchō weather station](docs/images/kucho-weather-station-1.jpg) -->
+<p align="center">
+  <img
+    src="docs/images/kucho-weather-station-1.jpg"
+    alt="Kūchō weather station prototype"
+    width="600"
+  />
+</p>
 
 Kūchō connects physical environmental sensors to a local AI agent. It continuously observes indoor temperature and humidity, detects meaningful changes using deterministic Rust logic, exposes live and historical climate data through MCP, and can autonomously comment on changes using local LLMs and speech synthesis.
 
