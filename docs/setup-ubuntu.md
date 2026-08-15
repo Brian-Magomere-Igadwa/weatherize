@@ -46,16 +46,32 @@ sudo apt install -y \
   build-essential \
   curl \
   git \
-  pkg-config \
   wget \
+  pkg-config \
+  libssl-dev \
   gcc-avr \
   avr-libc \
+  avrdude \
   libudev-dev \
+  clang \
+  libclang-dev \
+  libc6-dev \
+  cmake \
+  libespeak-ng-dev \
+  libsonic-dev \
+  libpcaudio-dev \
   libopus-dev \
   alsa-utils
 ```
 
-`alsa-utils` provides `aplay`, which Kūchō uses for speech playback on Linux.
+Some of these packages are only required for particular parts of Kūchō:
+
+- `gcc-avr`, `avr-libc`, and `avrdude` provide the AVR build and flashing toolchain.
+- `libssl-dev` is required by Rust crates that link against OpenSSL.
+- `clang`, `libclang-dev`, `libc6-dev`, `cmake`, and the eSpeak development
+  libraries are required when building Kokoros from source.
+- `alsa-utils` provides `aplay`, which Kūchō uses for speech playback on Linux.
+- `wget` is used by Kokoros' model and voice download scripts.
 
 ---
 
@@ -219,6 +235,12 @@ sudo usermod -aG dialout "$USER"
 
 Log out and back in after changing group membership.
 
+If this permission step is missing, the weather server may repeatedly report:
+
+```text
+Failed to open serial port. Retrying in 3s... error=Permission denied
+```
+
 Verify:
 
 ```bash
@@ -235,10 +257,29 @@ With the Arduino connected:
 just build-firmware
 ```
 
-Then flash it:
+### Important: stop the weather server before flashing
+
+Only one process can use the Arduino serial device at a time.
+
+If `just server` is currently running, stop it with `Ctrl+C` before flashing.
+Otherwise `avrdude` may fail with:
+
+```text
+cannot open port /dev/ttyACM0: Device or resource busy
+unable to open programmer arduino on port /dev/ttyACM0
+```
+
+Then flash the firmware:
 
 ```bash
 just flash
+```
+
+After flashing completes, the Arduino will reset. Restart the weather server
+when you are ready to receive telemetry again:
+
+```bash
+just server "$SERIAL_PORT"
 ```
 
 If flashing fails, check:
@@ -397,6 +438,16 @@ Then build the release binary:
 cargo build --release
 ```
 
+The Ubuntu system dependencies installed earlier include the native Clang,
+CMake, eSpeak, and audio-development packages required by Kokoros.
+
+If the build succeeds normally, no additional ONNX Runtime configuration
+should be necessary.
+
+If the build repeatedly fails while `ort-sys` is downloading its prebuilt ONNX
+Runtime bundle, use the dynamic-loading fallback documented in the next
+section.
+
 Verify:
 
 ```bash
@@ -437,6 +488,70 @@ export KUCHO_SPEECH_SPEED="0.92"
 
 On a normal Ubuntu setup, `ORT_DYLIB_PATH` should not need to be configured.
 Do not copy a macOS ONNX Runtime path into the Ubuntu configuration.
+
+### ONNX Runtime dynamic-loading fallback
+
+Use this only if the normal Kokoros build repeatedly fails while `ort-sys`
+downloads its prebuilt ONNX Runtime bundle.
+
+In `Kokoros/kokoros/Cargo.toml`, change the `ort` dependency from the normal
+prebuilt configuration to dynamic loading:
+
+```toml
+ort = {
+    version = "2.0.0-rc.11",
+    default-features = false,
+    features = ["std", "load-dynamic"]
+}
+```
+
+Rebuild Kokoros:
+
+```bash
+cd "$HOME/Kokoros"
+cargo clean
+cargo build --release
+```
+
+With `ort` 2.0.0-rc.11, Kūchō's tested fallback uses ONNX Runtime 1.23.2.
+Download the Linux x64 runtime:
+
+```bash
+cd "$HOME"
+
+curl -L \
+  https://github.com/microsoft/onnxruntime/releases/download/v1.23.2/onnxruntime-linux-x64-1.23.2.tgz \
+  -o onnxruntime-linux-x64-1.23.2.tgz
+
+tar -xzf onnxruntime-linux-x64-1.23.2.tgz
+```
+
+Verify the shared library exists:
+
+```bash
+find "$HOME/onnxruntime-linux-x64-1.23.2" \
+  -name "libonnxruntime.so*" \
+  -print
+```
+
+Then point Kokoros at the runtime:
+
+```bash
+export ORT_DYLIB_PATH="$HOME/onnxruntime-linux-x64-1.23.2/lib/libonnxruntime.so"
+```
+
+Verify:
+
+```bash
+ls -l "$ORT_DYLIB_PATH"
+```
+
+A missing runtime typically produces:
+
+```text
+Failed to load ONNX Runtime dylib
+failed to load from `libonnxruntime.so`
+```
 
 ---
 
@@ -490,8 +605,26 @@ When the environmental monitor detects a significant change, Kūchō can now:
 4. synthesize it with Kokoros;
 5. play it through the host audio system.
 
-Speech runs independently of the interactive prompt so audio generation does
-not block normal agent interaction.
+Speech runs independently of the interactive prompt so synthesis and playback
+do not block normal agent interaction.
+
+Generated observations are sent through a bounded speech queue and consumed by
+a single speech worker. This prevents multiple environmental events from
+producing overlapping voices.
+
+```text
+environment event
+      ↓
+Ollama commentary
+      ↓
+speech queue
+      ↓
+single speech worker
+      ↓
+Kokoros
+      ↓
+aplay
+```
 
 ---
 
@@ -666,6 +799,28 @@ sudo usermod -aG dialout "$USER"
 
 Then log out and back in.
 
+## Firmware flashing reports `Device or resource busy`
+
+If `just flash` reports:
+
+```text
+cannot open port /dev/ttyACM0: Device or resource busy
+```
+
+the weather server or another process is probably using the Arduino.
+
+Stop `just server` with `Ctrl+C`, then run:
+
+```bash
+just flash
+```
+
+After flashing succeeds, restart the server:
+
+```bash
+just server "$SERIAL_PORT"
+```
+
 ## Weather server starts but telemetry is unavailable
 
 Check:
@@ -745,6 +900,26 @@ Also verify Linux audio playback:
 ```bash
 command -v aplay
 ```
+
+## Kokoros cannot load `libonnxruntime.so`
+
+If speech reports:
+
+```text
+Failed to load ONNX Runtime dylib
+failed to load from `libonnxruntime.so`
+```
+
+check:
+
+```bash
+echo "$ORT_DYLIB_PATH"
+ls -l "$ORT_DYLIB_PATH"
+```
+
+`ORT_DYLIB_PATH` must point directly to a compatible Linux
+`libonnxruntime.so`. For the current dynamic-loading fallback, the tested
+runtime is ONNX Runtime 1.23.2.
 
 ## Speech is disabled
 
