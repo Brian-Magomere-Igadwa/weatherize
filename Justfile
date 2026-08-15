@@ -24,8 +24,8 @@ check-agent:
     cargo check -p cli-agent
     cargo test -p weather-actix-server --test mcp_endpoint
 
-run-agent prompt="How is the room climate right now?":
-    cargo run -p cli-agent -- --prompt "{{prompt}}"
+run-agent:
+    cargo run -p cli-agent
 
 # Complete Monorepo Verification
 check-all:
