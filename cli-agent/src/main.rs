@@ -4,7 +4,7 @@ mod speech;
 
 use agent::AgentEngine;
 use clap::Parser;
-use speech::SpeechEngine;
+use speech::{start_speech_worker, SpeechEngine};
 use std::path::PathBuf;
 
 #[derive(Parser, Debug)]
@@ -60,7 +60,7 @@ struct Args {
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let args = Args::parse();
 
-    let speech = SpeechEngine::new(
+    let speech_engine = SpeechEngine::new(
         args.speech,
         args.koko_binary,
         args.kokoro_model,
@@ -69,6 +69,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         args.voice_style,
         args.speech_speed,
     )?;
+
+    let speech = start_speech_worker(speech_engine);
 
     let agent = AgentEngine::new(
         args.mcp_url,

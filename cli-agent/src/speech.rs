@@ -1,6 +1,7 @@
 use std::path::PathBuf;
 use std::process::Stdio;
 use tokio::process::Command;
+use tokio::sync::mpsc;
 
 #[derive(Debug, Clone)]
 pub struct SpeechEngine {
@@ -137,6 +138,36 @@ impl SpeechEngine {
 
         Ok(())
     }
+}
+
+#[derive(Debug, Clone)]
+pub struct SpeechHandle {
+    tx: mpsc::Sender<String>,
+}
+
+impl SpeechHandle {
+    pub async fn speak(&self, text: String) -> Result<(), Box<dyn std::error::Error>> {
+        self.tx
+            .send(text)
+            .await
+            .map_err(|_| "speech queue is unavailable")?;
+
+        Ok(())
+    }
+}
+
+pub fn start_speech_worker(engine: SpeechEngine) -> SpeechHandle {
+    let (tx, mut rx) = mpsc::channel::<String>(4);
+
+    tokio::spawn(async move {
+        while let Some(text) = rx.recv().await {
+            if let Err(err) = engine.speak(&text).await {
+                eprintln!("[Kūchō Speech Error]: {err}");
+            }
+        }
+    });
+
+    SpeechHandle { tx }
 }
 
 async fn play_audio(path: &std::path::Path) -> Result<(), Box<dyn std::error::Error>> {

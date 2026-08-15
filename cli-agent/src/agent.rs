@@ -1,4 +1,4 @@
-use crate::speech::SpeechEngine;
+use crate::speech::SpeechHandle;
 
 use crate::events::AgentEvent;
 use futures_util::StreamExt;
@@ -52,7 +52,7 @@ pub struct AgentEngine {
     ollama_url: String,
     model: String,
     commentary_model: String,
-    speech: SpeechEngine,
+    speech: SpeechHandle,
 }
 
 impl AgentEngine {
@@ -61,7 +61,7 @@ impl AgentEngine {
         ollama_url: String,
         model: String,
         commentary_model: String,
-        speech: SpeechEngine,
+        speech: SpeechHandle,
     ) -> Self {
         Self {
             client: reqwest::Client::new(),
@@ -415,14 +415,9 @@ impl AgentEngine {
                         Ok(commentary) => {
                             println!("\n");
 
-                            let speech = self.speech.clone();
-                            let speech_text = commentary.clone();
-
-                            tokio::spawn(async move {
-                                if let Err(err) = speech.speak(&speech_text).await {
-                                    eprintln!("[Kūchō Speech Error]: {err}");
-                                }
-                            });
+                            if let Err(err) = self.speech.speak(commentary.clone()).await {
+                                eprintln!("[Kūchō Speech Queue Error]: {err}");
+                            }
 
                             messages.push(Message {
                                 role: "assistant".to_string(),
