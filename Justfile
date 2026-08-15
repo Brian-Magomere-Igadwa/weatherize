@@ -67,7 +67,7 @@ test-speech text="Oh good. Apparently the vocal cords survived setup.":
     : "${KUCHO_KOKORO_MODEL:?KUCHO_KOKORO_MODEL is not set}"
     : "${KUCHO_KOKORO_VOICES:?KUCHO_KOKORO_VOICES is not set}"
 
-    tmp_dir="$(mktemp -d -t kucho-speech)"
+    tmp_dir="$(mktemp -d "${TMPDIR:-/tmp}/kucho-speech.XXXXXX")"
     output="$tmp_dir/speech.wav"
 
     cleanup() {
@@ -98,7 +98,6 @@ test-speech text="Oh good. Apparently the vocal cords survived setup.":
         aplay "$output"
     else
         echo "No supported audio player found."
-        echo "macOS requires afplay; Ubuntu requires aplay (alsa-utils)."
         exit 1
     fi
 
