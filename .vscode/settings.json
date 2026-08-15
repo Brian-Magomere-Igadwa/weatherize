@@ -1,4 +1,9 @@
 {
+  "files.associations": {
+    "Justfile": "just",
+    "*.just": "just"
+  },
+
   "[just]": {
     "editor.formatOnSave": false
   }
