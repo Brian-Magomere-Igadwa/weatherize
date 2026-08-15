@@ -1,229 +1,543 @@
-# 空調 — Kūchō
+# Kūchō
 
-> **Real-Time Embedded Climate Intelligence & MCP Engine**
-> _A high-throughput Rust monorepo bridging bare-metal AVR analog sensing with local LLM tool calling via the Model Context Protocol._
+**A local-first ambient AI assistant that can sense the room, understand environmental changes, and complain about them out loud.**
 
----
+Kūchō connects physical environmental sensors to a local AI agent. It continuously observes indoor temperature and humidity, detects meaningful changes using deterministic Rust logic, exposes live and historical climate data through MCP, and can autonomously comment on changes using local LLMs and speech synthesis.
 
-## Overview
+```text
+"The room's gone from comfortable to stuffy."
 
-**Kūchō (空調)** is an autonomous indoor climate monitoring and decision-making system. Built as a unified Cargo workspace, it captures room metrics via an **ATmega328P** (Arduino Uno) sensor node, streams telemetry real-time over 57600 baud UART into an **Actix Web** backend, exposes metrics as **Model Context Protocol (MCP)** tools, and feeds contextual telemetry into a local **Ollama** instance via a dedicated CLI agent for real-time room atmosphere reasoning.
+"Oh joy, humidity's taking a wild ride."
 
----
+"Apparently opening a window was too ambitious."
+```
 
-## The Why
-
-Working indoors for long stretches makes it easy to forget to open windows and maintain healthy indoor humidity levels. Regardless of whether air conditioning is available, natural ventilation is cost-effective, practical, and maintains a comfortable room environment.
-
-More importantly, **Kūchō** serves as a natural prompt to take regular breaks: stepping out onto the balcony, taking in green surroundings, resetting, and stepping away from the screen to boost morale and spark new ideas. Instead of checking manual gauges or sensor apps, you can simply ask your local LLM if the room needs ventilation. The AI queries Kūchō's underlying MCP tools in real-time, evaluates humidity thresholds, and gives you an instant verdict on whether it's time to open the windows and take a breather.
+No cloud AI API is required for the core runtime.
 
 ---
 
-## Core Features
+## What it does
 
-- **Bare-Metal Hardware Ingestion:** Real-time UART serial frame parsing from custom AVR Rust firmware directly into non-blocking `tokio::sync::watch` state channels.
-- **Model Context Protocol (MCP) Engine:** Native JSON-RPC tool endpoints (`/mcp`) exposing real-time hardware telemetry (`get_indoor_climate`) directly to local LLMs.
-- **Native CLI Agent:** Interactive, streaming terminal client in Rust (`cli-agent`) that bridges local Ollama models with your hardware backend via MCP tool calls.
-- **Dual `#![no_std]` Domain Core:** Shared `weather-core` domain crate compiles cleanly for bare-metal microcontrollers (`avr-atmega328p`) and 64-bit host systems.
-- **Complete LGTM Telemetry Stack:** Structured JSON logging, tracing, and metrics gathered via Grafana Alloy into Loki, Tempo, and Grafana.
+Kūchō combines:
+
+- **Physical sensing** — an Arduino-based weather station provides live temperature and humidity telemetry.
+- **Telemetry history** — recent observations are retained for trend analysis.
+- **Deterministic monitoring** — thresholds, cooldowns, and hysteresis detect meaningful environmental changes without relying on an LLM.
+- **MCP tools** — the agent can query current conditions and recent climate trends.
+- **Autonomous events** — significant changes are pushed to the agent over Server-Sent Events.
+- **Local AI** — Ollama handles interactive conversation and autonomous commentary.
+- **Local speech** — optional Kokoros TTS gives Kūchō a voice.
+- **Observability** — optional infrastructure can be run separately from the core hardware/agent loop.
+
+The important boundary is simple:
+
+> **Rust decides that something happened. The LLM decides how to say it.**
 
 ---
 
-## System Architecture
+## Example
 
-```mermaid
-graph TB
-    subgraph HARDWARE ["Hardware Layer (Microcontroller)"]
-        DHT["DHT11 Sensor<br/><i>Digital Pin D8</i>"]
-        AVR["ATmega328P / Arduino Uno<br/><code>firmware-avr</code>"]
-        DHT -->|1-Wire Bit-Bang Protocol| AVR
-    end
+Ask Kūchō about the room:
 
-    subgraph SERVER ["Kūchō Actix Server"]
-        SERIAL["Serial Ingestion Worker<br/><code>57600 Baud UART</code>"]
-        STATE["In-Memory Watch Channel<br/><code>tokio::sync::watch</code>"]
-        REST["REST Telemetry Endpoint<br/><code>/api/v1/telemetry</code>"]
-        MCP["MCP Server Endpoint<br/><code>/mcp</code>"]
+```text
+> is it getting hotter or what?
 
-        SERIAL -->|Parse JSON Frame| STATE
-        STATE -->|Read Latest Snapshot| REST
-        STATE -->|Read Latest Snapshot| MCP
-    end
+[Kūchō is working...]
 
-    subgraph AGENT ["Local AI Agent Layer"]
-        CLI["CLI Agent Crate<br/><code>cli-agent</code>"]
-        OLLAMA["Ollama LLM Engine<br/><i>Local Inference (Qwen)</i>"]
+[Kūchō Agent: Calling MCP Tool 'get_climate_trend']
 
-        CLI <-->|JSON-RPC Tool Calls| MCP
-        CLI <-->|Prompts & Tool Responses| OLLAMA
-    end
+The current indoor climate is stable — neither warming nor cooling.
+Temperature remains at 23.0°C and humidity is holding around 51%.
+```
 
-    subgraph OBS ["Observability Stack (Docker)"]
-        ALLOY["Grafana Alloy<br/><i>OTLP Collector</i>"]
-        LOKI["Grafana Loki"]
-        TEMPO["Grafana Tempo"]
-        GRAFANA["Grafana Dashboards"]
-    end
+But Kūchō does not need to wait for a question.
 
-    SERVER -.->|Traces / Bunyan Logs| ALLOY
-    ALLOY --> LOKI
-    ALLOY --> TEMPO
-    ALLOY --> GRAFANA
+When the deterministic monitor detects a meaningful environmental change:
 
+```text
+[Kūchō noticed something...]
+
+Oh joy, humidity's taking a wild ride! It jumped up by 10%.
+
+[Kūchō would speak]:
+Oh joy, humidity's taking a wild ride! It jumped up by 10%.
+```
+
+With speech enabled, the final observation is synthesized and played through
+the host audio system.
+
+---
+
+## Architecture
+
+```text
+                    ┌─────────────────┐
+                    │     Arduino     │
+                    │    Sensors      │
+                    └────────┬────────┘
+                             │
+                         USB serial
+                             │
+                             ▼
+              ┌────────────────────────────┐
+              │    weather-actix-server    │
+              │                            │
+              │  telemetry → history       │
+              │               │            │
+              │               ├─ trends    │
+              │               │            │
+              │               ▼            │
+              │       environment monitor  │
+              │                            │
+              │      MCP          SSE      │
+              └───────┬───────────┬────────┘
+                      │           │
+                      ▼           ▼
+                   ┌────────────────┐
+                   │   cli-agent    │
+                   └───────┬────────┘
+                           │
+                    ┌──────┴──────┐
+                    │             │
+                    ▼             ▼
+                 Ollama        Kokoros
+                                  │
+                                  ▼
+                               speakers
+```
+
+There are two server-to-agent paths:
+
+```text
+MCP
+└── request-driven
+    └── "What's happening?"
+
+SSE
+└── event-driven
+    └── "Something happened."
+```
+
+For the full system design, see
+[`docs/architecture.md`](docs/architecture.md).
+
+---
+
+## Workspace
+
+Kūchō is a Rust workspace composed of four main crates:
+
+```text
+weather-core/
+├── shared environmental domain types and events
+
+firmware-avr/
+├── microcontroller firmware and sensor telemetry
+
+weather-actix-server/
+├── serial ingestion
+├── telemetry history
+├── trend analysis
+├── environmental monitoring
+├── REST API
+├── MCP server
+└── SSE event stream
+
+cli-agent/
+├── interactive agent
+├── MCP tool use
+├── SSE event consumption
+├── Ollama integration
+└── optional speech
 ```
 
 ---
 
-## Real-Time Sequence Flow
+## Quick start
 
-```mermaid
-sequenceDiagram
-    autonumber
-    actor User as User
-    actor Room as Room Environment
-    participant AVR as ATmega328P Firmware
-    participant Actix as Actix Serial Worker
-    participant State as Tokio Watch State
-    participant MCP as MCP Endpoint (/mcp)
-    participant CLI as CLI Agent
-    participant Ollama as Ollama Engine
-
-    Room->>AVR: Environmental Shift (Temp / Humidity)
-    AVR->>AVR: Sample DHT11 on Pin D8
-    AVR->>Actix: UART Serial Frame (JSON TelemetryPayload)
-    Actix->>State: Publish latest TelemetryPayload to watch channel
-
-    Note over CLI, Ollama: Autonomous Climate Evaluation Loop
-    User->>CLI: "Is it stuffy in here? Should I open the window?"
-    CLI->>Ollama: Prompt + MCP Tool Schema Definitions
-    Ollama-->>CLI: Request Tool Call: `get_indoor_climate`
-    CLI->>MCP: JSON-RPC Call (`tools/call`)
-    MCP->>State: Borrow latest value from watch channel
-    State-->>MCP: TelemetryPayload (Temp, Humidity, Status)
-    MCP-->>CLI: Tool Result Payload
-    CLI->>Ollama: Send Tool Result
-    Ollama-->>CLI: Stream Final Recommendation
-    CLI-->>User: "Humidity is at 72% (STUFFY). Open the windows and take a breather!"
-
-```
-
----
-
-## Workspace & Directory Structure
-
-```
-kucho-1/
-├── Justfile                      # Command runner for build, flash, and stack setup
-├── Cargo.toml                    # Workspace manifest & profile overrides
-├── Cargo.lock
-├── rust-toolchain.toml           # Toolchain pinning
-│
-├── weather-core/                 # Shared #![no_std] Domain Logic & DTOs
-│   ├── Cargo.toml
-│   └── src/
-│       ├── lib.rs                # #![cfg_attr(not(feature = "std"), no_std)]
-│       ├── domain.rs             # Value objects & rules (OPTIMAL, STUFFY, HIGH_HUMIDITY)
-│       └── protocol.rs           # Serde-compatible JSON telemetry frames
-│
-├── firmware-avr/                 # ATmega328P Bare-Metal Firmware
-│   ├── Cargo.toml
-│   ├── Ravedude.toml             # Flashing & serial config runner
-│   ├── avr-atmega328p.json       # Custom target specification
-│   ├── rust-toolchain.toml
-│   └── src/
-│       ├── main.rs               # Sampling loop & UART streaming
-│       └── dht11.rs              # Bit-bang 1-wire DHT11 driver
-│
-├── weather-actix-server/         # Async Web Server & MCP Engine
-│   ├── Cargo.toml
-│   ├── src/
-│   │   ├── main.rs               # Entry point (spawns worker, binds server)
-│   │   ├── lib.rs                # Exported application module for tests
-│   │   ├── handlers.rs           # REST API endpoints
-│   │   ├── serial.rs             # Async Tokio serial reader loop
-│   │   ├── mcp.rs                # MCP Tool Definitions & JSON-RPC server
-│   │   └── telemetry.rs          # OpenTelemetry & Bunyan tracing setup
-│   └── tests/                    # Black-Box Integration Tests
-│       ├── e2e_pipeline.rs
-│       ├── mcp_endpoint.rs
-│       └── telemtry_endpoint.rs
-│
-├── cli-agent/                    # Local AI Interactive Agent
-│   ├── Cargo.toml
-│   └── src/
-│       ├── main.rs               # CLI loop & streaming output
-│       └── agent.rs              # Ollama integration & MCP RPC client
-│
-└── deployment/                   # Homelab LGTM Observability Stack
-    ├── Dockerfile.server         # Production multi-stage build
-    ├── docker-compose.yml        # Local stack: Grafana, Loki, Tempo, Alloy
-    ├── alloy/                    # Grafana Alloy OTLP collector pipeline
-    ├── grafana/                  # Datasource provisioning
-    └── tempo/                    # Distributed tracing config
-
-```
-
----
-
-## Hardware Specifications
-
-| Component                  | Specification                                   |
-| -------------------------- | ----------------------------------------------- |
-| **Microcontroller Target** | ATmega328P (Arduino Uno)                        |
-| **Architecture**           | 8-bit AVR (`avr-atmega328p`)                    |
-| **Primary Sensor**         | DHT11 Temperature & Humidity Sensor             |
-| **Data Pin**               | Digital Pin **D8**                              |
-| **Heartbeat Indicator**    | Digital Pin **D13** (Toggles on sampling cycle) |
-| **Telemetry Transport**    | 57600 Baud UART Serial over USB                 |
-
----
-
-## Quickstart Guide
-
-### 1. Hardware Firmware Flash
-
-Plug in your Arduino Uno via USB and flash the release binary using `ravedude`:
+### 1. Clone the repository
 
 ```bash
-cd firmware-avr
-cargo +nightly -Zbuild-std=core,panic_abort -Zjson-target-spec run --release
-
+git clone <KŪCHŌ_REPOSITORY_URL>
+cd <KŪCHŌ_REPOSITORY_DIRECTORY>
 ```
 
-### 2. Start Backend Server
+### 2. Diagnose your setup
 
-Run the Actix ingestion server to capture serial streams and expose REST/MCP endpoints:
+Kūchō includes a setup doctor:
 
 ```bash
-cargo run -p weather-actix-server
-
+just doctor
 ```
 
-### 3. Trigger the AI CLI Agent
+It checks the major local requirements and tells you which parts of the stack
+still need configuration.
 
-In a separate terminal, trigger the local streaming agent (ensuring local Ollama instance is running):
+### 3. Verify the workspace
 
 ```bash
-cargo run -p cli-agent
-
+just check
 ```
 
-### 4. Deploy Observability Stack
+### 4. Follow the setup guide for your OS
 
-Spin up Grafana, Loki, Tempo, and Alloy using Docker Compose or `just`:
+**Ubuntu**
+
+[`docs/setup-ubuntu.md`](docs/setup-ubuntu.md)
+
+**macOS**
+
+[`docs/setup-macos.md`](docs/setup-macos.md)
+
+The core agent can run without speech. Kokoros should be configured only after
+the hardware, server, and Ollama paths are working.
+
+---
+
+## Running Kūchō
+
+A normal development session uses three local processes.
+
+### Ollama
+
+Make sure Ollama is running with the required models installed:
 
 ```bash
-docker compose -f deployment/docker-compose.yml up -d
+ollama pull qwen3:4b
+ollama pull qwen2.5:3b
+```
 
+### Weather server
+
+Connect the weather station and configure its serial device:
+
+```bash
+export SERIAL_PORT=<your-serial-device>
+```
+
+Then:
+
+```bash
+just server "$SERIAL_PORT"
+```
+
+### Agent
+
+In another terminal:
+
+```bash
+just agent
+```
+
+Then ask something:
+
+```text
+What's the temperature in here?
+
+Has the humidity been rising?
+
+Is it getting hotter?
+```
+
+Or leave it alone and wait for Kūchō to notice something itself.
+
+For platform-specific installation details, use the setup guides rather than
+copying machine-specific paths from another installation.
+
+---
+
+## Speech
+
+Speech is optional.
+
+When enabled, autonomous commentary follows this path:
+
+```text
+EnvironmentEvent
+      ↓
+Ollama commentary model
+      ↓
+natural-language observation
+      ↓
+Kokoros
+      ↓
+WAV
+      ↓
+afplay / aplay
+      ↓
+speakers
+```
+
+The current default voice is the British male Kokoro voice:
+
+```text
+bm_lewis
+```
+
+Once speech is configured, test it independently:
+
+```bash
+just test-speech
+```
+
+This deliberately isolates TTS from the rest of the agent so speech problems
+can be diagnosed without involving MCP, SSE, or environmental monitoring.
+
+See the OS setup guides for Kokoros installation and configuration.
+
+---
+
+## Useful commands
+
+```bash
+# Show available project commands
+just --list
+
+# Diagnose local setup
+just doctor
+
+# Check the workspace
+just check
+
+# Check firmware tooling
+just check-firmware
+
+# Build firmware
+just build-firmware
+
+# Flash the Arduino
+just flash
+
+# Start the weather server
+just server "$SERIAL_PORT"
+
+# Start the agent
+just agent
+
+# Test Kokoros speech independently
+just test-speech
+
+# Start optional observability infrastructure
+just observability-up
+
+# Stop optional observability infrastructure
+just observability-down
 ```
 
 ---
 
-## Testing
+## API and agent interfaces
 
-Run black-box integration tests for telemetry ingestion and MCP tool endpoint validation:
+The weather server exposes several boundaries used by the rest of the system.
+
+### Health
+
+```text
+GET /health
+```
+
+### Current telemetry
+
+```text
+GET /api/v1/telemetry
+```
+
+### Environmental event stream
+
+```text
+GET /api/v1/events
+```
+
+Events are delivered using Server-Sent Events.
+
+### MCP
+
+```text
+POST /mcp
+```
+
+Current MCP tools include:
+
+```text
+get_indoor_climate
+get_climate_trend
+```
+
+The agent discovers the available tool definitions from the server rather than
+hard-coding physical sensor data into the LLM.
+
+---
+
+## Why deterministic monitoring?
+
+Kūchō does not send every sensor observation to an LLM and ask whether it
+looks important.
+
+Instead:
+
+```text
+sensor reading
+      ↓
+Rust analysis
+      ↓
+thresholds
+      ↓
+cooldowns + hysteresis
+      ↓
+EnvironmentEvent
+      ↓
+LLM commentary
+```
+
+This keeps environmental behavior:
+
+- predictable;
+- testable;
+- reproducible;
+- inexpensive;
+- independent of model personality.
+
+It also lets the agent have personality without giving that personality
+control over environmental thresholds.
+
+**The language model can be sarcastic. The threshold logic cannot.**
+
+---
+
+## Local-first
+
+The primary runtime can operate locally:
+
+```text
+Arduino       local
+telemetry     local
+history       local
+monitoring    local
+MCP           local
+Ollama        local
+Kokoros       local
+audio         local
+```
+
+This makes Kūchō useful as an experiment in connecting local AI agents to
+physical environments without requiring the core sensor loop to depend on a
+remote AI service.
+
+---
+
+## Configuration
+
+Runtime configuration is externalized rather than embedding developer-machine
+paths in the application.
+
+See:
+
+```text
+.env.example
+```
+
+for the supported configuration variables.
+
+These include configuration for:
+
+- serial hardware;
+- weather-server networking;
+- Ollama;
+- chat and commentary models;
+- MCP;
+- speech;
+- Kokoros;
+- voice and speech speed;
+- platform-specific ONNX Runtime configuration.
+
+---
+
+## Tests
+
+Run the workspace checks:
 
 ```bash
-cargo test -p weather-actix-server
-
+just check
 ```
+
+The environmental monitor has focused tests covering behavior such as:
+
+- initialization without false events;
+- temperature-change detection;
+- event cooldowns;
+- independent temperature/humidity cooldowns;
+- safety-state recovery;
+- hysteresis near thresholds.
+
+For example:
+
+```bash
+cargo test -p weather-actix-server monitor
+```
+
+The server also contains integration coverage for its HTTP/MCP/event
+boundaries.
+
+---
+
+## Documentation
+
+| Document                                             | Purpose                                                |
+| ---------------------------------------------------- | ------------------------------------------------------ |
+| [`docs/setup-ubuntu.md`](docs/setup-ubuntu.md)       | Ubuntu installation and hardware setup                 |
+| [`docs/setup-macos.md`](docs/setup-macos.md)         | macOS installation, including Intel ONNX Runtime notes |
+| [`docs/architecture.md`](docs/architecture.md)       | System architecture and design decisions               |
+| [`docs/troubleshooting.md`](docs/troubleshooting.md) | Common failures and diagnostic workflow                |
+
+If something fails unexpectedly, start with:
+
+```bash
+just doctor
+```
+
+then see the troubleshooting guide.
+
+---
+
+## Current limitations
+
+Kūchō is still an experimental system.
+
+Notable current limitations include:
+
+- autonomous output can interrupt the interactive terminal prompt;
+- multiple closely timed announcements can produce overlapping speech;
+- speech setup remains platform-dependent;
+- Intel macOS requires additional ONNX Runtime configuration;
+- environmental thresholds are currently designed for the project's existing
+  sensor setup rather than a generalized hardware abstraction.
+
+These are deliberately visible rather than hidden behind the LLM layer.
+
+---
+
+## Project philosophy
+
+Kūchō started as a weather-station project but evolved into an experiment in
+giving a local AI agent a small amount of physical awareness.
+
+The architecture keeps three concerns separate:
+
+```text
+SENSE
+physical hardware tells us what is happening
+
+DECIDE
+deterministic software decides whether it matters
+
+EXPRESS
+the local AI decides how to communicate it
+```
+
+That separation is the core of the project.
+
+The sensors provide the facts.
+
+Rust provides the judgment.
+
+Kūchō provides the attitude.

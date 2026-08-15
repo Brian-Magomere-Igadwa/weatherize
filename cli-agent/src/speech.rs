@@ -5,9 +5,9 @@ use tokio::process::Command;
 #[derive(Debug, Clone)]
 pub struct SpeechEngine {
     enabled: bool,
-    koko_binary: PathBuf,
-    model_path: PathBuf,
-    voices_path: PathBuf,
+    koko_binary: Option<PathBuf>,
+    model_path: Option<PathBuf>,
+    voices_path: Option<PathBuf>,
     ort_dylib_path: Option<PathBuf>,
     voice_style: String,
     speech_speed: f32,
@@ -16,14 +16,58 @@ pub struct SpeechEngine {
 impl SpeechEngine {
     pub fn new(
         enabled: bool,
-        koko_binary: PathBuf,
-        model_path: PathBuf,
-        voices_path: PathBuf,
+        koko_binary: Option<PathBuf>,
+        model_path: Option<PathBuf>,
+        voices_path: Option<PathBuf>,
         ort_dylib_path: Option<PathBuf>,
         voice_style: String,
         speech_speed: f32,
-    ) -> Self {
-        Self {
+    ) -> Result<Self, Box<dyn std::error::Error>> {
+        if enabled {
+            let koko_binary = koko_binary
+                .as_ref()
+                .ok_or("speech is enabled but KUCHO_KOKO_BINARY is not configured")?;
+
+            let model_path = model_path
+                .as_ref()
+                .ok_or("speech is enabled but KUCHO_KOKORO_MODEL is not configured")?;
+
+            let voices_path = voices_path
+                .as_ref()
+                .ok_or("speech is enabled but KUCHO_KOKORO_VOICES is not configured")?;
+
+            if !koko_binary.exists() {
+                return Err(
+                    format!("Kokoros binary does not exist: {}", koko_binary.display()).into(),
+                );
+            }
+
+            if !model_path.exists() {
+                return Err(
+                    format!("Kokoro model does not exist: {}", model_path.display()).into(),
+                );
+            }
+
+            if !voices_path.exists() {
+                return Err(format!(
+                    "Kokoro voices file does not exist: {}",
+                    voices_path.display()
+                )
+                .into());
+            }
+
+            if let Some(ref dylib) = ort_dylib_path {
+                if !dylib.exists() {
+                    return Err(format!(
+                        "ONNX Runtime library does not exist: {}",
+                        dylib.display()
+                    )
+                    .into());
+                }
+            }
+        }
+
+        Ok(Self {
             enabled,
             koko_binary,
             model_path,
@@ -31,7 +75,7 @@ impl SpeechEngine {
             ort_dylib_path,
             voice_style,
             speech_speed,
-        }
+        })
     }
 
     pub async fn speak(&self, text: &str) -> Result<(), Box<dyn std::error::Error>> {
@@ -39,16 +83,31 @@ impl SpeechEngine {
             return Ok(());
         }
 
+        let koko_binary = self
+            .koko_binary
+            .as_ref()
+            .ok_or("Kokoros binary is not configured")?;
+
+        let model_path = self
+            .model_path
+            .as_ref()
+            .ok_or("Kokoro model is not configured")?;
+
+        let voices_path = self
+            .voices_path
+            .as_ref()
+            .ok_or("Kokoro voices file is not configured")?;
+
         let temp_dir = std::env::temp_dir();
         let output_path = temp_dir.join("kucho-speech.wav");
 
-        let mut command = Command::new(&self.koko_binary);
+        let mut command = Command::new(koko_binary);
 
         command
             .arg("--model")
-            .arg(&self.model_path)
+            .arg(model_path)
             .arg("--data")
-            .arg(&self.voices_path)
+            .arg(voices_path)
             .arg("--style")
             .arg(&self.voice_style)
             .arg("--speed")
